@@ -1,0 +1,10 @@
+openai
+langchain
+tiktoken
+pinecone-client
+python-dotenv
+datasets==2.10.1
+langchain-openai
+chardet
+faiss-cpu
+dotenv
