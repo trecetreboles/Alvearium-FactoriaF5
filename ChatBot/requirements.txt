@@ -4,4 +4,7 @@ tiktoken
 pinecone-client
 python-dotenv
 datasets==2.10.1
-langchain_openai
+langchain-openai
+chardet
+faiss-cpu
+dotenv
