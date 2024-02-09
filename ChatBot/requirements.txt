@@ -8,3 +8,4 @@ langchain-openai
 chardet
 faiss-cpu
 dotenv
+ftfy
