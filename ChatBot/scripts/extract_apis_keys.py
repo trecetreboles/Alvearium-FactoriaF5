@@ -1,22 +1,15 @@
 import os
-from dotenv import load_dotenv, find_dotenv
+from config import Config
 
-result = load_dotenv(find_dotenv(), override=True)
+# Define la ruta al archivo .env
+env_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 
-def load(result):
-    if result:
-        print("Variables de entorno cargadas exitosamente.")
-    else:
-        print("No se pudo cargar el archivo .env.")
+# Cargar la configuración desde el archivo .env
+config = Config(stream_or_path=env_file_path)
 
-        # Crear el archivo .env con las variables deseadas si no existe
-        with open(".env", "w") as f:
-            f.write(f"OPENAI_API_KEY=MY_OPENAI_API_KEY\n")
-
-        print("Se creó el archivo .env con las variables iniciales.")
-        # Vuelve a cargar las variables de entorno después de crear el archivo
-        load_dotenv()
-
-    os.environ['OPENAI_API_KEY'] = os.getenv("OPENAI_API_KEY") or "MY_OPENAI_API_KEY"
+def load():
+    # Configurar la variable de entorno OPENAI_API_KEY
+    os.environ['OPENAI_API_KEY'] = config.get("OPENAI_API_KEY") or "MY_OPENAI_API_KEY"
 
     return os.environ['OPENAI_API_KEY']
+
