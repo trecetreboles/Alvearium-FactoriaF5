@@ -9,6 +9,8 @@ from extract_apis_keys import load
 from langchain.schema import format_document
 from langchain_community.vectorstores.faiss import FAISS
 from langchain_core.output_parsers import StrOutputParser
+from fastapi import FastAPI
+from langserve import add_routes
 
 # Cargar la clave de la API de OpenAI
 OPENAI_API_KEY = load()
@@ -38,7 +40,7 @@ class Chatbot:
         retriever = self.load_database()
 
         # Definir la plantilla de la solicitud de chat
-        prompt_template = """Answer the question based only on the following context:
+        prompt_template = """Answer the question based only on the following context, if you don't know the answer, just say that you don't know, don't try to make up an :
                             {context}
                             Question: {question}
                             System: Answer according to the language you are typing in the prompt {question}. 

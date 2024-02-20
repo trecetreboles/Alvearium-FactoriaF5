@@ -12,4 +12,3 @@ def load():
     os.environ['OPENAI_API_KEY'] = config.get("OPENAI_API_KEY") or "MY_OPENAI_API_KEY"
 
     return os.environ['OPENAI_API_KEY']
-
