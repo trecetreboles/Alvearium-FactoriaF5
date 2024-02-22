@@ -14,7 +14,7 @@
 
 ## 💭 Planteamiento
 
-Este proyecto es para una empresa real llamada Alvearium. Nuestro grupo está trabajando en el desarrollo de un ChatBot utilizando LangChain y OpenAI. Este ChatBot será entrenado con RAG (Retrieval-Augmented Generation) para proporcionar respuestas precisas y relevantes a las consultas de los usuarios. Además, se implementará un procesamiento de Texto a Voz (Text-to-Speech) para permitir una interacción más natural y fluida con los usuarios.
+Este proyecto es para una empresa real llamada Alvearium. Nuestro grupo está trabajando en el desarrollo de un ChatBot utilizando LangChain y OpenAI. Este ChatBot será entrenado con RAG (Retrieval-Augmented Generation) para proporcionar respuestas precisas y relevantes a las consultas de los usuarios. Además, se implementará un procesamiento de Voz a Texto (Speech-To-Text) para permitir una interacción más natural y fluida con los usuarios.
 
 El ChatBot se integrará en Unreal Engine 5 como un asistente en Realidad Virtual. Esto permitirá a los usuarios interactuar con el ChatBot de una manera más inmersiva y realista, mejorando así la experiencia del usuario.
 
@@ -30,7 +30,7 @@ El ChatBot se integrará en Unreal Engine 5 como un asistente en Realidad Virtua
 
   - **ChatBot con LangChain y OpenAI**: El ChatBot se desarrollará utilizando LangChain y OpenAI. Se entrenará con RAG para proporcionar respuestas precisas y relevantes a las consultas de los usuarios.
 
-- **Procesamiento de Texto a Voz (Text-to-Speech)**: Se implementará un procesamiento de Texto a Voz para permitir una interacción más natural y fluida con los usuarios.
+- **Procesamiento de Voz a Texto (Speech-To-Text)**: Se implementará un procesamiento de Voz a Texto para permitir una interacción más natural y fluida con los usuarios.
 
 - **Integración en Unreal Engine 5**: El ChatBot se integrará en Unreal Engine 5 como un asistente en Realidad Virtual. Esto permitirá a los usuarios interactuar con el ChatBot de una manera más inmersiva y realista.
 </p>
@@ -67,7 +67,7 @@ Las fases generales del proyecto son:
 - Implementación de API de Open AI (Modelo GPT 3.5 Turbo)
 - Conexión de modelo a Unreal Engine 5
 - Visualización de chatbot en asistente dentro de Unreal
-- Text to speech dentro de experiencia inmmersiva
+- Speech to text dentro de experiencia inmmersiva
 
 <br>
 
