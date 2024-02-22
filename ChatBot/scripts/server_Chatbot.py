@@ -89,7 +89,7 @@ class ChatHistory(BaseModel):
 
 
 conversational_qa_chain = (
-    _inputs | _context | ANSWER_PROMPT | ChatOpenAI() | StrOutputParser()
+    _inputs | _context | ANSWER_PROMPT | ChatOpenAI(model="gpt-4-0125-preview") | StrOutputParser()
 )
 chain = conversational_qa_chain.with_types(input_type=ChatHistory)
 
@@ -143,10 +143,6 @@ async def favicon():
     # Puedes devolver una imagen de ícono si tienes una
     return
 
-# Adds routes to the app for using the chain under:
-# /invoke
-# /batch
-# /stream
 add_routes(app, chain, enable_feedback_endpoint=True)
 
 if __name__ == "__main__":
