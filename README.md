@@ -116,4 +116,3 @@ El proyecto debe de ser presentado el martes día 27 de febrero.
   <samp>  
     Esta es la página principal <a href="https://alvearium.io/">Alvearium</a>
   </samp>
-</p>
