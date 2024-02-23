@@ -176,27 +176,27 @@ async def get_answer(request_body: dict):
     global global_chat_history
     
     # Extraer la pregunta del cuerpo de la solicitud
-    question = request_body.get("question")
+    question = request_body.get("text")  # Cambiado de "question" a "text"
     if not question:
-        raise HTTPException(status_code=400, detail="Pregunta no proporcionada en el cuerpo de la solicitud.")
+        raise HTTPException(status_code=400, detail="Transcripción no proporcionada en el cuerpo de la solicitud.")
     
     # Extraer el historial de chat del cuerpo de la solicitud, o usar una lista vacía si no está presente
     chat_history = request_body.get("chat_history", [])
     
     # Llama a tu lógica existente para obtener la respuesta
     with get_openai_callback() as cb:
-        respuesta = chain.invoke({"chat_history": chat_history, "question": question})
+        answer = chain.invoke({"chat_history": chat_history, "question": question})  # Cambiado "respuesta" por "answer"
         print(cb)
         # Si ocurrió algún error al obtener la respuesta, lanza una excepción HTTP
-        if not respuesta:
+        if not answer:
             raise HTTPException(status_code=500, detail="Error al procesar la pregunta")
     
     # Convertir la respuesta del chatbot a audio utilizando la función text_to_speech
-    audio_content = text_to_speech(respuesta)
+    audio_content = text_to_speech(answer)
     
     # Actualizar el historial de chat global con la nueva conversación
     global_chat_history.append(("Usuario", question))
-    global_chat_history.append(("Asistente", respuesta))
+    global_chat_history.append(("Asistente", answer))
     
     # Crear un archivo temporal para almacenar el contenido de audio
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio_file:
