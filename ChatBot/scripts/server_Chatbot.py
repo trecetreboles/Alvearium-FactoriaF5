@@ -1,13 +1,13 @@
 import os
-import time
-import requests
-from google.cloud import storage
+import pyaudio
+import wave
 from typing import List, Tuple
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import StreamingResponse, FileResponse
+from operator import itemgetter
+from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi.responses import FileResponse
 from pydub import AudioSegment
 from langserve import add_routes
-from langchain_core.pydantic_v1 import BaseModel, Field
+from langserve.pydantic_v1 import BaseModel, Field
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.prompts import ChatPromptTemplate
 from langchain.prompts.prompt import PromptTemplate
@@ -18,20 +18,16 @@ from langchain.vectorstores.faiss import FAISS
 from langchain_community.callbacks import get_openai_callback
 from google.cloud import texttospeech_v1 as texttospeech
 from google.cloud import speech_v1 as speech
-from operator import itemgetter
-from werkzeug.utils import secure_filename
-from io import BytesIO
-import librosa
-import soundfile as sf
-import tempfile
-import speech_recognition as sr
 from extract_apis_keys import load
 
 app = FastAPI(
     title="LangChain Server",
     version="1.0",
-    description="Spin up a simple API server using Langchain's Runnable interfaces",
+    description="Spin up a simple API server using Langchlistain's Runnable interfaces",
 )
+
+UPLOAD_DIRECTORY = "./audio_files"
+os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
 
 # Configura las credenciales de autenticación de Google Cloud
 GOOGLE_APPLICATION_CREDENTIALS = load()
@@ -39,10 +35,6 @@ GOOGLE_APPLICATION_CREDENTIALS = load()
 # Carga de la clave de la API OpenAI
 OPENAI_API_KEY = load()[1]
 openai_embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
-
-# Inicializar el cliente de Google Cloud Storage
-nombre_bucket = "nombre-del-bucket"  # Reemplaza con el nombre de tu bucket
-cliente_storage = storage.Client()
 
 # Plantillas de conversación y respuesta
 _TEMPLATE = """Given the following conversation and a follow up question, rephrase the 
@@ -52,7 +44,7 @@ Chat History:
 {chat_history}
 Follow Up Input: {question}
 Standalone question:"""
-CONDENSE_QUESTION_PROMPT = ChatPromptTemplate.from_template(_TEMPLATE)
+CONDENSE_QUESTION_PROMPT = PromptTemplate.from_template(_TEMPLATE)
 
 ANSWER_TEMPLATE = """Answer the question based only on the following context:
 {context}
@@ -61,7 +53,7 @@ Question: {question}
 """
 ANSWER_PROMPT = ChatPromptTemplate.from_template(ANSWER_TEMPLATE)
 
-DEFAULT_DOCUMENT_PROMPT = ChatPromptTemplate.from_template(template="{page_content}")
+DEFAULT_DOCUMENT_PROMPT = PromptTemplate.from_template(template="{page_content}")
 
 # Función para combinar documentos
 def _combine_documents(
@@ -112,7 +104,7 @@ class ChatHistory(BaseModel):
 
 # Cadena de procesamiento de la conversación
 conversational_qa_chain = (
-    _inputs | _context | ANSWER_PROMPT | ChatOpenAI(model="gpt-4-0125-preview") | StrOutputParser()
+    _inputs | _context | ANSWER_PROMPT | ChatOpenAI() | StrOutputParser()
 )
 chain = conversational_qa_chain.with_types(input_type=ChatHistory)
 
@@ -134,59 +126,73 @@ def text_to_speech(text):
     )
     return response.audio_content
 
-# Función para subir un archivo a Google Cloud Storage
-def upload_to_gcs(file_path, gcs_file_name):
-    bucket = cliente_storage.bucket(nombre_bucket)
-    blob = bucket.blob(gcs_file_name)
-    blob.upload_from_filename(file_path)
+# Función para convertir voz a texto (STT)
+def speech_to_text(file_path: str):
+    client = speech.SpeechClient()
+    with open(file_path, "rb") as audio_file:
+        content = audio_file.read()
+    audio = speech.RecognitionAudio(content=content)
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        sample_rate_hertz=16000,
+        language_code="es-ES",
+    )
+    response = client.recognize(config=config, audio=audio)
+    # Verificar si hay resultados antes de acceder al primer elemento
+    if response.results:
+        return response.results[0].alternatives[0].transcript
+    else:
+        # Manejar el caso donde no hay resultados
+        return "No se pudo transcribir el audio"
 
-# Función para descargar un archivo desde Google Cloud Storage
-def download_from_gcs(gcs_file_name, local_file_path):
-    bucket = cliente_storage.bucket(nombre_bucket)
-    blob = bucket.blob(gcs_file_name)
-    blob.download_to_filename(local_file_path)
-
-async def speech_to_text(file: UploadFile = File(...)):
+# Esta es la función que manejará las solicitudes de los usuarios en formato de audio
+@app.post("/ask_audio")
+async def ask_question_audio(file: UploadFile = File(...)):
+    # Guardamos el archivo de audio enviado por el usuario
+    file_path_mp3 = os.path.join(UPLOAD_DIRECTORY, file.filename)
+    file_path_wav = os.path.splitext(file_path_mp3)[0] + ".wav"
+    
+    # Normalizar la ruta del archivo
+    file_path_mp3 = os.path.normpath(file_path_mp3)
+    file_path_wav = os.path.normpath(file_path_wav)
+    
+    # Imprime la ruta de archivo para depurar
+    print("MP3 file path:", file_path_mp3)
+    print("WAV file path:", file_path_wav)
+    
+    with open(file_path_mp3, "wb") as audio_file:
+        audio_file.write(await file.read())
+    
+    # Convertir el archivo MP3 a LINEAR16
+    convert_mp3_to_linear16(file_path_mp3, file_path_wav)
+    
+    # Intentamos convertir el audio a texto utilizando la función speech_to_text
     try:
-        # Guardar el archivo de audio temporalmente en el disco
-        with tempfile.NamedTemporaryFile(delete=False) as temp_audio:
-            temp_audio.write(await file.read())
-            temp_audio_path = temp_audio.name
-
-        # Subir el archivo de audio a Google Cloud Storage
-        upload_to_gcs(temp_audio_path, "audio_files/temp_audio.wav")
-
-        # Realizar la transcripción de voz
-        transcription = await speech_to_text_internal("audio_files/temp_audio.wav")
-
-        # Eliminar el archivo temporal
-        os.remove(temp_audio_path)
-
-        # Devolver directamente el texto transcribido
-        return {"text": transcription}
-
+        question = speech_to_text(file_path_wav)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Si ocurre un error al transcribir el audio, devolvemos un mensaje de error
+        return {"error": "No se pudo transcribir el audio"}
+    
+    # Aquí es donde enviarías la pregunta al bot y obtendrías una respuesta
+    # Por ahora, solo devolvemos un mensaje de prueba
+    answer = "¡Hola! Has preguntado: " + question
+    
+    # Convertir la respuesta del asistente a audio utilizando la función text_to_speech
+    audio_content = text_to_speech(answer)
+    
+    # Enviar respuesta en formato de audio
+    return FileResponse(audio_content, media_type="audio/mp3")
 
-async def speech_to_text_internal(audio_path: str) -> str:
-    try:
-        # Descargar el archivo de audio desde Google Cloud Storage
-        download_from_gcs(audio_path, "temp_audio.wav")
-
-        # Crear un objeto Recognizer
-        recognizer = sr.Recognizer()
-
-        # Abrir el archivo de audio como una fuente de audio
-        with sr.AudioFile("temp_audio.wav") as source:
-            # Escuchar el audio y transcribirlo
-            audio_data = recognizer.record(source)
-            transcription = recognizer.recognize_google(audio_data, language="es-ES")
-
-        # Devolver la transcripción
-        return transcription
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# Función para convertir archivos MP3 a LINEAR16
+def convert_mp3_to_linear16(mp3_file_path: str, wav_file_path: str):
+    # Cargar el archivo MP3
+    audio = AudioSegment.from_mp3(mp3_file_path)
+    
+    # Convertir a formato LINEAR16 (16-bit PCM)
+    audio = audio.set_frame_rate(16000).set_sample_width(2).set_channels(1)
+    
+    # Guardar el archivo convertido
+    audio.export(wav_file_path, format="wav")
 
 # Define la ruta y la función controladora para manejar las solicitudes POST
 @app.post("/answer")
@@ -194,83 +200,83 @@ async def get_answer(request_body: dict):
     global global_chat_history
     
     # Extraer la pregunta del cuerpo de la solicitud
-    question = request_body.get("text")  # Cambiado de "question" a "text"
+    question = request_body.get("question")
     if not question:
-        raise HTTPException(status_code=400, detail="Transcripción no proporcionada en el cuerpo de la solicitud.")
+        raise HTTPException(status_code=400, detail="Pregunta no proporcionada en el cuerpo de la solicitud.")
     
     # Extraer el historial de chat del cuerpo de la solicitud, o usar una lista vacía si no está presente
     chat_history = request_body.get("chat_history", [])
     
     # Llama a tu lógica existente para obtener la respuesta
     with get_openai_callback() as cb:
-        answer = chain.invoke({"chat_history": chat_history, "question": question})  # Cambiado "respuesta" por "answer"
+        respuesta = chain.invoke({"chat_history": chat_history, "question": question})
         print(cb)
         # Si ocurrió algún error al obtener la respuesta, lanza una excepción HTTP
-        if not answer:
+        if not respuesta:
             raise HTTPException(status_code=500, detail="Error al procesar la pregunta")
-    
-    # Convertir la respuesta del chatbot a audio utilizando la función text_to_speech
-    audio_content = text_to_speech(answer)
     
     # Actualizar el historial de chat global con la nueva conversación
     global_chat_history.append(("Usuario", question))
-    global_chat_history.append(("Asistente", answer))
+    global_chat_history.append(("Asistente", respuesta))
     
-    # Crear un archivo temporal para almacenar el contenido de audio
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio_file:
-        tmp_audio_file.write(audio_content)
-        tmp_audio_file_path = tmp_audio_file.name
+    # Convertir la respuesta del chatbot a audio utilizando la función text_to_speech
+    audio_content = text_to_speech(respuesta)
+    
+    # Enviar respuesta en formato de audio
+    return FileResponse(audio_content, media_type="audio/mp3")
 
-    # Devolver el archivo temporal como respuesta
-    return FileResponse(tmp_audio_file_path, media_type="audio/mp3")
+# Función para grabar audio
+def record_audio(file_path: str, duration: int = 5):
+    CHUNK = 1024
+    FORMAT = pyaudio.paInt16
+    CHANNELS = 1
+    RATE = 16000
+    RECORD_SECONDS = duration
+    
+    audio = pyaudio.PyAudio()
+    
+    stream = audio.open(format=FORMAT, channels=CHANNELS,
+                        rate=RATE, input=True,
+                        frames_per_buffer=CHUNK)
+    
+    print("Recording...")
+    frames = []
+    
+    for i in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+        data = stream.read(CHUNK)
+        frames.append(data)
+    
+    print("Finished recording.")
+    
+    stream.stop_stream()
+    stream.close()
+    audio.terminate()
+    
+    with wave.open(file_path, 'wb') as wf:
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(audio.get_sample_size(FORMAT))
+        wf.setframerate(RATE)
+        wf.writeframes(b''.join(frames))
 
-@app.post("/ask_audio")
-async def ask_question_audio(file: UploadFile = File(...)):
-    try:
-        # Leer el contenido del archivo de audio
-        contents = await file.read()
+# Ruta para la grabación de audio
+@app.post("/record_audio")
+async def record_audio_endpoint(duration: int = 5):
+    # Guardamos el archivo de audio grabado
+    file_path_wav = os.path.join(UPLOAD_DIRECTORY, "recorded_audio.wav")
+    
+    # Normalizar la ruta del archivo
+    file_path_wav = os.path.normpath(file_path_wav)
+    
+    # Llama a la función de grabación de audio
+    record_audio(file_path_wav, duration)
+    
+    return {"message": "Audio grabado exitosamente."}
 
-        # Crear un archivo temporal para escribir el contenido
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio_file:
-            tmp_audio_file.write(contents)
-            tmp_audio_file_path = tmp_audio_file.name
-
-        # Subir el archivo de audio a Google Cloud Storage
-        upload_to_gcs(tmp_audio_file_path, "audio_files/original.mp3")
-
-        # Realizar la solicitud al servidor para convertir el MP3 a WAV
-        response_mp3_to_wav = requests.post(f"http://localhost:8000/ask_audio", json={"bucket": nombre_bucket, "file_name": "audio_files/original.mp3"})
-        response_mp3_to_wav.raise_for_status()  # Lanzar una excepción en caso de error de solicitud
-
-        # Esperar un tiempo para que el servidor tenga tiempo de crear el archivo WAV
-        time.sleep(2)  # Ajusta el tiempo de espera según sea necesario
-
-        # Realizar la solicitud al servidor para convertir el audio WAV a texto (STT)
-        response_stt = requests.post(f"http://localhost:8000/speech_to_text", json={"bucket": nombre_bucket, "file_name": "audio_files/temp_audio_resampled.wav"})
-        response_stt.raise_for_status()  # Lanzar una excepción en caso de error de solicitud
-
-        # Obtener la transcripción de audio a texto
-        transcription = response_stt.json().get("text")
-
-        print(f"Transcripción de audio a texto exitosa: {transcription}")
-
-        # Realizar la solicitud al servidor para obtener la respuesta del chatbot
-        response_answer = requests.post(f"http://localhost:8000/answer", json={"text": transcription, "chat_history": global_chat_history})
-        response_answer.raise_for_status()  # Lanzar una excepción en caso de error de solicitud
-
-        # Obtener la respuesta del chatbot
-        answer = response_answer.content
-
-        # Crear un archivo temporal para almacenar la respuesta del chatbot
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio_file:
-            tmp_audio_file.write(answer)
-            tmp_audio_file_path = tmp_audio_file.name
-
-        # Devolver el archivo temporal como respuesta
-        return FileResponse(tmp_audio_file_path, media_type="audio/mp3")
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# Ruta para la conversión de voz a texto (STT)
+@app.post("/speech_to_text")
+async def stt(audio_content: bytes):
+    text = speech_to_text(audio_content)
+    return {"text": text}
 
 # Ruta para la conversión de texto a voz (TTS)
 @app.post("/text_to_speech")

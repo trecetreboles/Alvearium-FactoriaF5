@@ -1,68 +1,64 @@
 import streamlit as st
-import requests
-import tempfile
-import soundfile as sf
-import speech_recognition as sr
+from google.cloud import texttospeech
+from google.cloud import speech_v1 as speech
 
-# Título de la aplicación
-st.title("Chatbot Interactivo")
+# Función para convertir texto a voz (TTS)
+def text_to_speech(text):
+    client = texttospeech.TextToSpeechClient()
+    synthesis_input = texttospeech.SynthesisInput(text=text)
+    voice = texttospeech.VoiceSelectionParams(
+        language_code="es-ES", ssml_gender=texttospeech.SsmlVoiceGender.FEMALE
+    )
+    audio_config = texttospeech.AudioConfig(
+        audio_encoding=texttospeech.AudioEncoding.LINEAR16
+    )
+    response = client.synthesize_speech(
+        input=synthesis_input, voice=voice, audio_config=audio_config
+    )
+    return response.audio_content
 
-# URL del servidor
-server_url = "http://localhost:8000"
-
-# Función para realizar una solicitud al servidor y obtener la respuesta
-def send_request(endpoint, payload):
-    try:
-        response = requests.post(f"{server_url}/{endpoint}", json=payload)
-        response.raise_for_status()  # Lanzar una excepción si la solicitud falla
-        return response.content
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error en la solicitud: {e}")
-
-# Definir las opciones de la aplicación
-option = st.selectbox(
-    "Seleccione una opción:",
-    ("Realizar pregunta", "Ver historial del chat")
-)
-
-# Lógica para cada opción
-if option == "Realizar pregunta":
-    st.subheader("Realizar pregunta")
-
-    # Opción para ingresar texto o cargar un archivo de audio
-    method = st.radio("Seleccione un método:", ("Texto", "Audio"))
-
-    if method == "Texto":
-        user_input = st.text_input("Ingrese su pregunta:")
+# Función para convertir voz a texto (STT)
+def speech_to_text(audio_content):
+    client = speech.SpeechClient()
+    audio = speech.RecognitionAudio(content=audio_content)
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        sample_rate_hertz=16000,
+        language_code="es-ES",
+    )
+    response = client.recognize(config=config, audio=audio)
+    if response.results:
+        return response.results[0].alternatives[0].transcript
     else:
-        st.info("Cargue un archivo de audio (mp3 o wav) para realizar la pregunta.")
-        audio_file = st.file_uploader("Cargar archivo de audio")
+        return "No se pudo transcribir el audio"
 
-    if st.button("Enviar pregunta"):
-        if method == "Texto" and user_input:
-            payload = {"text": user_input}
-            response = send_request("answer", payload)
-            st.audio(response, format="audio/mp3")
-        elif method == "Audio" and audio_file:
-            with tempfile.NamedTemporaryFile(delete=False) as temp_audio:
-                temp_audio.write(audio_file.read())
-                temp_audio_path = temp_audio.name
+# Título de la interfaz
+st.title("Prueba de Conexión a Google Cloud")
 
-            try:
-                recognizer = sr.Recognizer()
-                with sr.AudioFile(temp_audio_path) as source:
-                    audio_data = recognizer.record(source)
-                    text = recognizer.recognize_google(audio_data, language="es-ES")
+# Botón para probar la conexión de TTS
+if st.button("Probar TTS (Texto a Voz)"):
+    # Texto de prueba
+    test_text = "Hola, esto es una prueba de conexión a Google Cloud Text-to-Speech."
 
-                payload = {"text": text}
-                response = send_request("answer", payload)
-                st.audio(response, format="audio/mp3")
-            except Exception as e:
-                st.error(f"Error al procesar el archivo de audio: {e}")
+    # Intentar convertir texto a voz
+    try:
+        audio_content = text_to_speech(test_text)
+        st.audio(audio_content, format="audio/wav")
+        st.success("La conexión a Google Cloud Text-to-Speech fue exitosa.")
+    except Exception as e:
+        st.error(f"Error al conectar a Google Cloud Text-to-Speech: {e}")
 
-elif option == "Ver historial del chat":
-    st.subheader("Ver historial del chat")
-    response = send_request("chat_history", {})
-    chat_history = response.json().get("chat_history", [])
-    for turn in chat_history:
-        st.write(f"{turn[0]}: {turn[1]}")
+# Botón para probar la conexión de STT
+if st.button("Probar STT (Voz a Texto)"):
+    # Archivo de audio de prueba (reemplace con su propio archivo de audio si es necesario)
+    test_audio_file = "audio_sample.wav"
+
+    # Intentar convertir voz a texto
+    try:
+        with open(test_audio_file, "rb") as audio_file:
+            audio_content = audio_file.read()
+        transcript = speech_to_text(audio_content)
+        st.write("Texto transcrito:", transcript)
+        st.success("La conexión a Google Cloud Speech-to-Text fue exitosa.")
+    except Exception as e:
+        st.error(f"Error al conectar a Google Cloud Speech-to-Text: {e}")
